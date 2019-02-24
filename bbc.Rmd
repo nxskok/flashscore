@@ -65,6 +65,28 @@ recco_dates=function(fname, year) {
 }
 ```
 
+make a tribble of all of the leagues
+
+```{r}
+leagues = tribble(
+  ~file_name, ~year, ~code,
+  "2018-sl.txt", 2018, "01",
+  "2018-champ.txt", 2018, "02",
+  "2018-l1.txt", 2018, "03",
+  "2018-nrl.txt", 2018, "99",
+  "2019-sl.txt", 2019, "01",
+  "2019-champ.txt", 2019, "02",
+  "2019-l1.txt", 2019, "03",
+)
+leagues
+```
+
+```{r}
+leagues %>% mutate(results=pmap(list(f=file_name, y=year, cc=code), ~create_matches(..1, ..2, ..3))) -> r
+r %>% unnest(results) -> games
+saveRDS(games, "games.rds")
+games
+```
 
 
 
