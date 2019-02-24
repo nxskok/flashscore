@@ -8,7 +8,7 @@ output: html_notebook
 can do superleague and league one all together, separated by comp eg 201901, 201902, etc.
 
 Example url: `https://www.bbc.com/sport/rugby-league/league-one/scores-fixtures/2019-02`
-copy and paste into named file
+copy and paste into named file, most recent at the top (for current ones)
 
 ## Packages
 
