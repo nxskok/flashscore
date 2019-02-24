@@ -1,0 +1,95 @@
+---
+title: "bbc"
+output: html_notebook
+---
+
+# grabbing rugby league scores from the BBC website
+
+can do superleague and league one all together, separated by comp eg 201901, 201902, etc.
+
+Example url: `https://www.bbc.com/sport/rugby-league/league-one/scores-fixtures/2019-02`
+copy and paste into named file
+
+## Packages
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(lubridate)
+```
+
+copy-and-paste to eg 2019-champ, read in from there (otherwise trickery with selenium)
+
+## read in from text file and create matches
+
+function to do
+
+```{r}
+half_plus=function(x) (as.numeric(x)+1) %/% 2
+
+dow=c("SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY")
+pat=str_c(dow, collapse="|")
+# d %>% filter(str_detect(X1,pat)) %>% mutate(the_date=dmy(str_c(X1, " ", 2018))) -> lookup
+# d %>% left_join(lookup)
+
+
+create_matches=function(fname, year, lno) {
+  read_csv(fname, col_names=F) -> d
+  
+  d %>% filter(str_detect(X1,pat)) %>% mutate(date_of=dmy(str_c(X1, " ", year))) -> lookup
+  
+  d %>% left_join(lookup) %>% 
+    mutate(not_a_date=is.na(date_of)) %>% 
+    fill(date_of) %>% 
+    filter(not_a_date) %>% 
+    select(-not_a_date) -> d2
+
+  n_matches=nrow(d2)/5
+  
+  d2 %>% 
+    mutate(match_no=gl(n_matches, 5),
+           column_no=gl(5, 1, nrow(d2), labels=c("t1", "s1", "t2", "s2", "ft"))) %>% 
+    spread(column_no, X1) %>% 
+    select(-match_no, -ft) %>% 
+    mutate(score=str_c(half_plus(s1), " - ", half_plus(s2))) %>% 
+    mutate(comp=str_c(year, lno)) %>% 
+    select(comp, date=date_of, t1_name=t1, t2_name=t2, score)
+}
+```
+
+```{r}
+recco_dates=function(fname, year) {
+  read_csv(fname, col_names=F) %>% 
+    mutate(the_date_text=str_c(X1, " ", year)) %>% 
+    mutate(date_of=parse_date_time(the_date_text, "dmy")) 
+}
+```
+
+
+
+
+```{r}
+(d2019=create_matches("2019-champ.txt", 2019, "02"))
+```
+
+```{r}
+d2019 %>% count(t1_name)
+```
+
+
+```{r}
+(d2018=create_matches("2018-champ.txt", 2018, "02"))
+```
+
+```{r}
+d2018 %>% count(t1_name)
+```
+
+
+save these
+
+```{r}
+saveRDS(d2018, "201802-results.rds")
+saveRDS(d2019, "201902-results.rds")
+```
+

@@ -1,0 +1,109 @@
+---
+title: "flashscore with splashr"
+output: html_notebook
+---
+
+I don't think I need this any more.
+
+## packages
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(splashr)
+```
+
+startup
+
+```{r}
+killall_splash()
+splash_svr=start_splash() # seems not to need sudo
+Sys.sleep(10)
+splash('localhost') %>% splash_active() # this takes a moment to get going. check it again.
+```
+
+
+## get today's RL page
+
+```{r}
+my_url="https://www.flashscore.ca/rugby-league/"
+splash('localhost') %>% render_html(my_url,wait=3) -> html
+```
+
+investigate
+
+```{r}
+html %>% html_nodes('div') -> divs
+divs %>% html_attr('class') -> classes
+divs %>% html_text() -> texts
+tibble(classes,texts) %>% 
+  filter(str_detect(classes, "participant event") | str_detect(classes,"score event")) %>% 
+  mutate(classes=str_replace(classes, " fontBold", "")) %>% 
+  separate(classes, into=c("e1", "e2", "what"), sep="__") %>% 
+  select(-e1, -e2) %>% 
+  mutate(r=(row_number()+3) %/% 4) %>% # assumes 4
+  spread(what, texts) %>% 
+  mutate(s1=as.numeric(`score--home`), s2=as.numeric(`score--away`)) %>% 
+  select(t1=`participant--home`, t2=`participant--away`, s1, s2)
+```
+
+that works. Write as a function:
+
+```{r}
+tidy_results=function(html) {
+html %>% html_nodes('div') -> divs
+divs %>% html_attr('class') -> classes
+divs %>% html_text() -> texts
+tibble(classes,texts) %>% 
+  filter(str_detect(classes, "participant event") | str_detect(classes,"score event")) %>% 
+  mutate(classes=str_replace(classes, " fontBold", "")) %>% 
+  separate(classes, into=c("e1", "e2", "what"), sep="__") %>% 
+  select(-e1, -e2) %>% 
+  mutate(r=(row_number()+3) %/% 4) %>% # assumes 4
+  spread(what, texts) %>% 
+  mutate(s1=as.numeric(`score--home`), s2=as.numeric(`score--away`)) %>% 
+  select(t1=`participant--home`, t2=`participant--away`, s1, s2)
+}
+```
+
+test:
+
+```{r}
+tidy_results(html)
+```
+
+boom.
+
+## what happens if I try to get yesterday's?
+
+`splash_click` exists, but I have to give it x and y coords. How do I find them out?
+
+Experiment?
+
+```{r}
+splash('localhost') %>% render_html(my_url,wait=3) %>% splash_click(x=200,y=200) 
+```
+
+```{r}
+splash('localhost') %>%
+  splash_go(my_url) %>% 
+  splash_wait(3) %>%
+  splash_click(x=60,y=10) %>% 
+  splash_png()
+```
+
+example on site
+
+```{r}
+splash('localhost') %>%
+  splash_plugins(TRUE) %>%
+  splash_go("https://gis.cdc.gov/GRASP/Fluview/FluHospRates.html") %>%
+  splash_wait(4) %>%
+  splash_send_keys("<Enter>") %>% 
+  splash_click(460, 550) %>%
+  splash_wait(2) %>%
+  splash_click(230, 85) %>%
+  splash_wait(2) %>%
+  splash_png()
+```
+

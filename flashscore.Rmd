@@ -1,0 +1,174 @@
+---
+title: "Grabbing rugby league scores from Flashscore using Selenium"
+output: html_notebook
+---
+
+ok, that doesn't work either. Try `https://www.bbc.com/sport/rugby-league/scores-fixtures/2019-02-17` with date, back to Feb 3. Or, better, `https://www.rugby-league.com/2019_structure`, `https://www.rugby-league.com/championship__league_1/results`
+
+## Packages
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(RSelenium)
+library(lubridate)
+```
+
+## Fire up Selenium and connect to current Flashscore rugby league page
+
+```{bash}
+docker stop quizzical_shannon
+```
+
+
+```{bash}
+docker run -d -p 4445:4444 selenium/standalone-firefox
+```
+
+is it running?
+
+```{bash}
+docker ps
+```
+
+connect to it
+
+```{r}
+remdr <- RSelenium::remoteDriver(remoteServerAddr = "localhost",
+                                 port = 4445L,
+                                 browserName = "firefox")
+remdr$open()
+remdr$setTimeout(type = "page load", milliseconds = 10000)
+```
+
+the big loop
+
+```{r}
+my_url="https://www.flashscore.ca/rugby-league/"
+remdr$navigate(my_url)
+i=0
+today=Sys.Date()
+my_list=list()
+repeat {
+  # handle current day
+  html_code=remdr$getPageSource()[[1]]
+  html=read_html(html_code)
+  html  
+  the_date=today-i
+  print(the_date)
+  the_date_text=as.character(the_date)
+  my_list[[the_date_text]]=tidy_results(html, the_date)
+  i=i+1
+  if (i>25) break
+  # get yesterday
+  element=remdr$findElement(using="css", "div.calendar__direction.calendar__direction--yesterday")
+  element$clickElement()
+  Sys.sleep(5)
+  # then loop around again
+}
+my_list %>% bind_rows()
+```
+
+
+
+```{r}
+my_url="https://www.flashscore.ca/rugby-league/"
+remdr$navigate(my_url)
+```
+
+screenshot
+
+```{r}
+remdr$screenshot(display=T)
+```
+
+## grab current one
+
+```{r}
+html_code=remdr$getPageSource()[[1]]
+html=read_html(html_code)
+html
+html %>% html_nodes('div') -> divs
+divs %>% html_attr('class') -> classes
+divs %>% html_text() -> texts
+tibble(classes,texts) %>% 
+  filter(str_detect(classes, "participant event") | str_detect(classes,"score event")) %>% 
+  mutate(classes=str_replace(classes, " fontBold", "")) %>% 
+  separate(classes, into=c("e1", "e2", "what"), sep="__") %>% 
+  select(-e1, -e2) %>% 
+  mutate(r=(row_number()+3) %/% 4) %>% # assumes 4
+  spread(what, texts) %>% 
+  mutate(s1=as.numeric(`score--home`), s2=as.numeric(`score--away`)) %>% 
+  select(t1=`participant--home`, t2=`participant--away`, s1, s2)
+```
+
+my function from the other place:
+
+```{r}
+tidy_results=function(html,the_date) {
+html %>% html_nodes('div') -> divs
+divs %>% html_attr('class') -> classes
+divs %>% html_text() -> texts
+# check to see if I have anything I am looking for; if not, return empty df
+tibble(classes,texts) %>% 
+  filter(str_detect(classes, "participant event") | str_detect(classes,"score event")) %>% 
+  mutate(classes=str_replace(classes, " fontBold", "")) %>% 
+  separate(classes, into=c("e1", "e2", "what"), sep="__") %>% 
+  select(-e1, -e2) %>% 
+  mutate(r=(row_number()+3) %/% 4) %>% # assumes 4
+  spread(what, texts) -> d
+  if (nrow(d)==0) return(d)
+  d %>% mutate(s1=as.numeric(`score--home`), s2=as.numeric(`score--away`), date=the_date) %>% 
+  select(date, t1=`participant--home`, t2=`participant--away`, s1, s2)
+}
+```
+
+```{r}
+html_code=remdr$getPageSource()[[1]]
+html=read_html(html_code)
+tidy_results(html, Sys.Date())
+```
+
+find the thing to click for "yesterday":
+
+```{r}
+element=remdr$findElement(using="css", "div.calendar__direction.calendar__direction--yesterday")
+element$clickElement()
+Sys.sleep(5)
+remdr$screenshot(display=TRUE)
+```
+
+```{r}
+html_code=remdr$getPageSource()[[1]]
+html=read_html(html_code)
+tidy_results(html, Sys.Date()-1)
+```
+
+
+## the loop from the blog post
+
+```{r}
+gamelist=list()
+i=0
+remdr$navigate(url)
+repeat {
+  i=i+1
+  html=remdr$getPageSource()[[1]]
+  read_html(html) %>% 
+    html_node(css="table") %>% 
+    html_table() ->
+  gamelist[[i]]
+  if (i>=2) 
+    if (identical(gamelist[[i]], gamelist[[i-1]])) 
+      break
+  element=remdr$findElement(using="css", "a.previous")
+  element$clickElement()
+  if (i>20) break
+}
+```
+
+Have to get from today back. (Only access is via "yesterday".)
+
+## References
+
+[my blog post](http://ritsokiguess.site/docs/2018/09/01/scraping-icelandic-soccer-results-with-rvest-and-selenium/)
