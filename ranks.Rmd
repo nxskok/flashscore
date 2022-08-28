@@ -1,0 +1,27 @@
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+
+```{r}
+rr <- read_rds("../ratings/rating_ranks.rds")
+rr
+```
+
+```{r}
+games <- read_rds("../scoresway/rds/games.rds")
+right_now <- now()
+right_now - hours(1)
+games %>% filter(between(time_stamp, right_now - hours(12), right_now)) %>% 
+  select(t1, t2, comp) %>% 
+  left_join(rr, by = c("t1"="sw_id")) %>% 
+  left_join(rr, by = c("t2"="sw_id")) %>% 
+  drop_na(league.x, league.y) %>% 
+  mutate(league = ifelse(league.x == league.y, league.x, str_c(league.x, "-", league.y))) %>% 
+  select(league, home = name.x, r1 = rank.x, away = name.y, r2 = rank.y) %>% 
+  arrange(league, home)
+  
+  
+```
+

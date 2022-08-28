@@ -1,0 +1,87 @@
+```{r, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(lubridate)
+source("getrl.R", echo = FALSE)
+```
+
+
+```{r, include=FALSE}
+key <-  "com_2" # soccer
+# key <- "union"
+# key <- "league"
+list.files(path = ".", pattern = str_c(key, ".*.rds")) %>% 
+  rev() -> v
+v
+```
+
+```{r, echo=FALSE}
+now <- read_rds(v[1])
+prev <- read_rds(v[2])
+```
+
+```{r}
+print(glue::glue("Current games: {nrow(now)}"))
+```
+
+
+## The most recent updates
+
+```{r}
+v[1:2]
+```
+
+```{r, echo=FALSE}
+enframe(v) %>% 
+  slice(1:2) %>% 
+  extract(value, into = "dts", regex = "com_(.*)_rds$") %>% 
+  mutate(dt = ymd_hms(dts)) %>% 
+  pull(dt) -> w
+w[1]-w[2]
+```
+
+
+## Recent updates
+
+```{r, echo=FALSE}
+done <- c("Finished", "Awarded", "After Pen.", "Cancelled", "After ET", "Postponed")
+now %>% left_join(prev, by = "id") %>% 
+  select(-id) %>% 
+  replace_na(list(home_score.x = "-",
+                  away_score.x = "-",
+                  status.y = "-",
+                  home_score.y = "-",
+                  away_score.y = "-")) %>% 
+  mutate(progress = case_when(
+    status.x == status.y   ~ "no",
+    status.x %in% done ~ "done", 
+    home_score.x != home_score.y ~ "home",
+    away_score.x != away_score.y ~ "away",
+    TRUE ~ "no"
+  )) %>% 
+  filter(progress != "no") %>% 
+  mutate(score_now = str_c(home_score.x, " - ", away_score.x),
+         score_then = str_c(home_score.y, " - ", away_score.y),
+         score = str_c(score_now, "  (", score_then, ")")) %>% 
+  select(league = league.x, status = status.x, home_team = home_team.x, away_team = away_team.x, score, progress) %>% 
+  # View("updates")
+# %>%
+  knitr::kable()
+```
+
+```{r, echo=FALSE}
+done <- c("Finished", "Awarded", "After Pen.", "Cancelled", "After ET", "Postponed")
+now %>% 
+  filter(!(status %in% done)) %>% 
+  filter(!str_detect(status, ":")) -> d
+nrow_d <- nrow(d)
+```
+
+
+## Games in progress (`r nrow_d`) 
+
+```{r, echo=FALSE}
+d %>% 
+  select(-id) %>% 
+  knitr::kable()
+```
+

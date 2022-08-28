@@ -1,0 +1,68 @@
+
+docker
+
+```{bash}
+docker run -d -p 4445:4444 selenium/standalone-firefox
+```
+
+
+```{r}
+library(RSelenium)
+remDr <- remoteDriver(port = 4445L)
+remDr$open(silent = TRUE)
+```
+
+
+```{r}
+remDr$navigate("http://www.google.com/ncr")
+remDr$getTitle()
+```
+
+```{r}
+remDr$navigate("http://www.bbc.com")
+remDr$getTitle()
+```
+
+```{r}
+# remDr <- remoteDriver(port = 4445L)
+# remDr$open()
+remDr$getStatus()
+```
+
+
+
+start again
+
+from https://docs.ropensci.org/wdman/articles/basics.html
+
+```{r}
+library(wdman)
+library(RSelenium)
+selServ <- selenium(verbose = TRUE, retcommand = TRUE)
+```
+```{r}
+selServ$process
+```
+
+```{r}
+rD <- rsDriver(port = 9469L, browser="firefox", chromever = "100.0.4896.20") # Any four digit integer numbers ending with L, except for "4567L"/"6789L"
+remDr <- rD[["client"]]
+remDr$navigate("http://news.naver.com")
+
+```
+
+
+
+```{r}
+cDrv <- chrome(port = 4568L)
+```
+
+```{r}
+cDrv$log()
+```
+
+```{r}
+library(RSelenium)
+rD <- rsDriver(port=4569L, browser="chrome")
+```
+

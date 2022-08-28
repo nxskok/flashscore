@@ -1,0 +1,244 @@
+```{r package-connect}
+library(tidyverse)
+library(lubridate)
+library(rvest)
+library(glue)
+library(janitor)
+library(RSelenium)
+remDr <- remoteDriver(port = 4445L)
+remDr$open(silent = TRUE)
+```
+
+look at soccer main page
+
+```{r navigate}
+my_url <- "https://www.flashscore.com/"
+remDr$navigate(my_url)
+title <- remDr$getTitle()
+title
+if (length(title) == 0) stop("no title") 
+```
+
+copy function `get_game_info` from game_summary.Rmd
+
+
+```{r}
+get_text <- function(h, sel) {
+  h %>% html_node(sel) %>% html_text()
+}
+
+goal_string <- function(h) {
+  h %>% html_nodes("div") -> divs
+  divs %>% html_attr("class") -> classes
+  divs %>% html_text() -> texts
+  
+  # tibble(classes, texts) %>% View()
+  
+  i_want <- tribble(
+    ~site_class, ~my_class,
+    "smv__timeBox", "time",
+    "smv__incidentHomeScore", "score",
+    "smv__incidentAwayScore", "score"
+  )
+  
+  tibble(classes, texts) %>% 
+    filter(classes %in% i_want$site_class) %>% 
+    left_join(i_want, by = c("classes"="site_class")) %>% 
+    select(-classes) %>% 
+    mutate(row = cumsum(my_class == "time")) %>% 
+    pivot_wider(names_from = my_class, values_from = texts) -> d
+  if (!("score" %in% names(d))) return("")
+  d %>% drop_na(score) %>% 
+    mutate(score = str_remove_all(score, " ")) %>% 
+    mutate(goal = str_c(time, " ", score)) %>% 
+    pull(goal) %>% 
+    glue_collapse(sep = "; ")
+}
+
+
+get_game_info <- function(game_id, remDr) { # the game_id is the random string *without* the g_1_ on the front
+  my_url <- "https://www.flashscore.com/"
+  the_url = str_c(my_url, "match/", game_id, "/#/match-summary")
+  print(the_url)
+  remDr$navigate(the_url)
+  Sys.sleep(1)
+  my_html <- remDr$getPageSource()[[1]][1]
+  my_html %>% read_html() -> h
+  sel <- "#detail > div.duelParticipant > div.duelParticipant__home > div.participant__participantNameWrapper > div.participant__participantName.participant__overflow > a"
+  home_team <- get_text(h, sel)
+  sel <- "#detail > div.duelParticipant > div.duelParticipant__away > div.participant__participantNameWrapper > div.participant__participantName.participant__overflow > a"
+  away_team <- get_text(h, sel)
+  sel <- "#detail > div.tournamentHeader.tournamentHeaderDescription > div > span.tournamentHeader__country"
+  league <- get_text(h, sel)
+  sel <- "#detail > div.duelParticipant > div.duelParticipant__startTime > div"
+  kickoff_utc <- get_text(h, sel)
+  dt <- parse_date_time(kickoff_utc, orders = "dmyHM")
+  kickoff <- with_tz(dt, tzone = "America/Toronto")
+  sel <- "#detail > div.duelParticipant > div.duelParticipant__score > div > div.detailScore__wrapper"
+  score <- get_text(h, sel)
+  sel <- "#detail > div.duelParticipant > div.duelParticipant__score > div > div.detailScore__status"
+  status <- get_text(h, sel)
+  goals <- goal_string(h)
+  tibble(kickoff, league, home_team, score, away_team, status, goals)
+}
+```
+
+
+get the html ready to process
+
+first skip the ad
+
+```{r skip-ad}
+Sys.sleep(1)
+tryCatch(
+  expr = {
+    webElem <- remDr$findElement(using = "css", value = "#onetrust-accept-btn-handler")
+    webElem$clickElement()
+    print(remDr$getCurrentUrl())
+    message("done successfully")
+  },
+  error = function(e) {
+    message("Caught an error")
+    print(e)
+  },
+  finally = {
+    message("All done")
+  }
+)
+```
+
+```{r page-source}
+my_html <- remDr$getPageSource()[[1]][1]
+my_html %>% read_html() -> h
+h
+```
+
+```{r}
+to_keep <- tribble(
+  ~class, ~class_me,
+  "event__stage", "stage",
+  "event__time", "ko",
+  "event__score event__score--home", "home_score",
+  "event__score event__score--away", "away_score"
+  )
+h %>% html_elements("#live-table > section > div > div") %>% 
+  html_elements("div") -> divs
+divs %>% html_attr("class") -> classes
+divs %>% html_text() -> texts
+divs %>% html_attr("id") -> ids
+```
+
+
+
+```{r}
+tibble(class = classes, id = ids, text = texts) %>% 
+  fill(id) %>% 
+  mutate(league = ifelse(class == "event__titleBox", text, NA)) %>% 
+  fill(league) %>% 
+  mutate(keep_row = ifelse(class %in% to_keep$class, "yes", "no")) %>% 
+  filter(keep_row == "yes") %>% 
+  left_join(to_keep) %>% 
+  select(id, class_me, text) %>% 
+  pivot_wider(names_from = class_me, values_from = text) %>% 
+  extract(id, into = "id", regex = "._._(.*)$") -> d
+nrow(d)
+```
+
+if this has zero rows, stop here
+
+write this one with timestamp
+
+```{r}
+fname <- str_c("flash_", make_clean_names(now()), ".rds")
+write_rds(d, fname)
+```
+
+
+read the last two
+
+```{r}
+files <- list.files(pattern = "^flash_")
+ff <- rev(files)
+ff
+i <- 1
+j <- 2 # change this to 2
+d <- read_rds(ff[i])
+d_prev <- read_rds(ff[j])
+```
+
+
+if either d or d_prev have no rows, stop here
+
+```{r}
+if (nrow(d)==0) stop("No rows in d")
+if (nrow(d_prev)==0) stop("No rows in d_prev")
+```
+
+
+the first one of the day will include games that are finished now but were not started when we last looked
+
+```{r want}
+d %>% left_join(d_prev, by = "id") %>% 
+  filter(!is.na(stage.x)) %>%               # started / going / finished now
+  filter((stage.x != stage.y) |
+         is.na(stage.y)) %>%                # stage change or stage was missing before
+  filter((home_score.x != home_score.y) |   # home score different,
+           (away_score.x != away_score.y) | # or away score different,
+           (stage.x == "Finished") |        # or is finished now,
+           (str_detect(stage.x, "fter"))    # or ended after ET/pens
+         ) %>% 
+  select(id) -> d_now
+nrow(d_now)
+```
+
+if this has zero rows, then stop here
+
+```{r}
+if (nrow(d_now) == 0) stop("No new scores")
+```
+
+
+get details for games that need to be gotten
+
+
+
+https://www.flashscore.com/match/tl37O6rA/#/match-summary/match-summary
+
+```{r details}
+d_now %>% 
+  rowwise() %>% 
+  mutate(info = list(get_game_info(id, remDr))) -> d_got
+d_got %>% unnest(info) %>% 
+  select(id, kickoff, league:goals) -> d_updated
+d_updated
+```
+
+compare with prev
+
+```{r wanted}
+label <- str_c("latest ", Sys.time())
+d_updated %>% left_join(d_prev, by = "id") %>% 
+  mutate(prev_score = str_c("(", home_score, "-", away_score, ")")) %>% 
+  mutate(match = str_c(home_team, " - ", away_team)) %>% 
+  mutate(score_plus = str_c(score, " ", prev_score)) %>% 
+  select(kickoff, league, match, score = score_plus, status, goals) %>% 
+  arrange(kickoff) %>% View(label)
+```
+
+```{r}
+remDr$close()
+```
+
+
+how many games still going?
+
+```{r still-going}
+d %>% 
+  drop_na(stage) %>% 
+  filter(stage != "Finished") %>% 
+  filter(!str_detect(stage, "fter")) %>% 
+  filter(stage != "Postponed") %>% 
+  filter(stage != "Cancelled") %>% 
+  nrow()
+```
+
