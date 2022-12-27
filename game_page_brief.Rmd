@@ -5,6 +5,9 @@ library(rvest)
 library(glue)
 library(janitor)
 library(RSelenium)
+```
+
+```{r}
 remDr <- remoteDriver(port = 4445L)
 remDr$open(silent = TRUE)
 ```
@@ -19,7 +22,9 @@ title
 if (length(title) == 0) stop("no title") 
 ```
 
+
 copy function `get_game_info` from game_summary.Rmd
+
 
 
 ```{r}
@@ -59,7 +64,7 @@ goal_string <- function(h) {
 get_game_info <- function(game_id, remDr) { # the game_id is the random string *without* the g_1_ on the front
   my_url <- "https://www.flashscore.com/"
   the_url = str_c(my_url, "match/", game_id, "/#/match-summary")
-  print(the_url)
+  # print(the_url)
   remDr$navigate(the_url)
   Sys.sleep(1)
   my_html <- remDr$getPageSource()[[1]][1]
@@ -78,6 +83,7 @@ get_game_info <- function(game_id, remDr) { # the game_id is the random string *
   score <- get_text(h, sel)
   sel <- "#detail > div.duelParticipant > div.duelParticipant__score > div > div.detailScore__status"
   status <- get_text(h, sel)
+  status <- str_replace(status, "Half", "Half ")
   goals <- goal_string(h)
   tibble(kickoff, league, home_team, score, away_team, status, goals)
 }
@@ -159,11 +165,11 @@ read the last two
 ```{r}
 files <- list.files(pattern = "^flash_")
 ff <- rev(files)
-ff
 i <- 1
 j <- 2 # change this to 2
 d <- read_rds(ff[i])
 d_prev <- read_rds(ff[j])
+# d_prev
 ```
 
 
@@ -171,25 +177,31 @@ if either d or d_prev have no rows, stop here
 
 ```{r}
 if (nrow(d)==0) stop("No rows in d")
-if (nrow(d_prev)==0) stop("No rows in d_prev")
+# if (nrow(d_prev)==0) stop("No rows in d_prev")
 ```
 
+find the games that have changed (this should now have all combos)
 
-the first one of the day will include games that are finished now but were not started when we last looked
-
-```{r want}
-d %>% left_join(d_prev, by = "id") %>% 
-  filter(!is.na(stage.x)) %>%               # started / going / finished now
-  filter((stage.x != stage.y) |
-         is.na(stage.y)) %>%                # stage change or stage was missing before
-  filter((home_score.x != home_score.y) |   # home score different,
-           (away_score.x != away_score.y) | # or away score different,
-           (stage.x == "Finished") |        # or is finished now,
-           (str_detect(stage.x, "fter"))    # or ended after ET/pens
-         ) %>% 
-  select(id) -> d_now
+```{r}
+if (nrow(d_prev) == 0) {
+  d_now <- d
+} else {
+  d %>% left_join(d_prev, by = "id") %>% 
+  mutate(display = case_when(
+    is.na(stage.x) & is.na(stage.y)               ~ 0, # not started yet
+    is.na(stage.x) & !is.na(stage.y)              ~ 0, # this should be impossible
+    stage.x == "Finished" & stage.y == "Finished" ~ 0, # already finished
+    stage.x == "Finished" & stage.y != "Finished" ~ 1, # finished since last look
+    stage.x == "Finished" & is.na(stage.y)        ~ 1, # started and finished since last look; from now on, stage.x is number
+    is.na(stage.y)                                ~ 1, # game started, first update
+    home_score.x > home_score.y                   ~ 1, # home team scored
+    away_score.x > away_score.y                   ~ 1, # away team scored
+    TRUE                                          ~ 0, # neither team scored
+  )) %>% filter(display == 1) -> d_now
+}
 nrow(d_now)
 ```
+
 
 if this has zero rows, then stop here
 
@@ -213,16 +225,24 @@ d_got %>% unnest(info) %>%
 d_updated
 ```
 
+```{r}
+# write_rds(d_prev, "d_prev.rds")
+# write_rds(d_updated, "d_updated.rds")
+# d_prev <- read_rds("d_prev.rds")
+# d_updated <- read_rds("d_updated.rds")
+```
+https://worldcup.predictthefootball.com/standings/overall/2022?#p220
+
 compare with prev
 
 ```{r wanted}
 label <- str_c("latest ", Sys.time())
 d_updated %>% left_join(d_prev, by = "id") %>% 
-  mutate(prev_score = str_c("(", home_score, "-", away_score, ")")) %>% 
+  mutate(prev_score = ifelse(is.na(home_score), "(---)", str_c("(", home_score, "-", away_score, ")"))) %>% 
   mutate(match = str_c(home_team, " - ", away_team)) %>% 
   mutate(score_plus = str_c(score, " ", prev_score)) %>% 
   select(kickoff, league, match, score = score_plus, status, goals) %>% 
-  arrange(kickoff) %>% View(label)
+  arrange(kickoff, league) %>% View(label)
 ```
 
 ```{r}
@@ -230,7 +250,7 @@ remDr$close()
 ```
 
 
-how many games still going?
+how many games still going? 
 
 ```{r still-going}
 d %>% 
@@ -242,3 +262,5 @@ d %>%
   nrow()
 ```
 
+idea: get next via script
+have separate scripts to pull out predict-the-football comps and by kickoff

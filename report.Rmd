@@ -1,0 +1,17 @@
+---
+title: "Games received"
+output: html_notebook
+---
+
+```{r}
+#| setup, include = FALSE
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(targets)
+tar_load(game_df)
+game_df %>% select(-key) %>% 
+  knitr::kable()
+```
+

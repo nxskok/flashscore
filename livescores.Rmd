@@ -1,0 +1,146 @@
+try livescores
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(RSelenium)
+```
+
+```{r}
+remDr <- remoteDriver(port = 4445L)
+remDr$open(silent = TRUE)
+```
+
+initialize list
+
+```{r}
+shows <- list()
+```
+
+
+look at soccer main page
+
+```{r navigate}
+my_url <- "https://livescores.com"
+remDr$navigate(my_url)
+title <- remDr$getTitle()
+title
+if (length(title) == 0) stop("no title") 
+```
+
+```{r}
+# my_url <- "https://www.flashscore.com/football/albania/superliga/"
+# remDr$navigate(my_url)
+# remDr$getAllCookies()
+remDr$addCookie(name = "ls.tz", value = "-5") # set a cookie to get timezone
+remDr$navigate(my_url)
+```
+
+```{r page-source}
+my_html <- remDr$getPageSource()[[1]][1]
+# my_html
+```
+
+write the html to file [see here](https://stackoverflow.com/questions/56261745/r-rvest-error-error-in-doc-namespacesdoc-external-pointer-is-not-valid)
+
+```{r}
+fname <- str_c("h", Sys.time(), ".rds")
+fname %>% str_replace_all(" ", "_") -> fname
+write_rds(my_html, fname)
+```
+
+
+```{r}
+remDr$close()
+```
+
+
+play with it (remDr not needed)
+
+```{r}
+v <- list.files(pattern = "^h20.*\\.rds")
+tail(v)
+```
+
+function to take rds and make df of games
+
+```{r}
+make_game_df <- function(rdsfile) {
+  htmlcode <- read_rds(rdsfile)
+  htmlcode %>% read_html -> h
+  # return(h)
+  h %>% html_nodes("span.Pg.Lg") %>% html_text() -> statuses
+  h %>% html_nodes("span.ch") %>% html_text() -> homes
+  h %>% html_nodes("span.dh") %>% html_text() -> aways
+  h %>% html_nodes("span.Zg") %>% html_text() -> scores
+  tibble(status = statuses, home = homes, score = scores, away = aways) %>% 
+    mutate(key = str_c(home, ":", away))
+}
+```
+
+
+
+
+```{r}
+i <- 2
+j <- 1
+vv <- rev(sort(v))
+make_game_df(vv[i])
+
+m_0 <- make_game_df(vv[i])
+m_1 <- make_game_df(vv[j])
+```
+
+
+
+
+
+
+```{r}
+nrow(m_0) ; nrow(m_1)
+```
+
+```{r}
+dones <- c("FT", "AET", "AP", "Postp.", "Canc.")
+qq <- "? - ?"
+m_0 %>% left_join(m_1, by = "key") %>% 
+  mutate(display = case_when(
+    score.x == qq & score.y == qq                ~ 0, # not started yet
+    status.x %in% dones & status.y %in% dones    ~ 0, # was done
+    !(status.x %in% dones) & status.y %in% dones ~ 1, # just finished
+    score.x == qq & score.y != qq                ~ 1, # just started
+    score.x != score.y                           ~ 1,  # goal
+    TRUE                                         ~ 0, # nothing
+  )) %>% 
+  filter(display == 1) %>% 
+  mutate(score = str_c(score.y, "  (", score.x, ")")) %>% 
+  select(status = status.y, home = home.y, score, away = away.y) %>% 
+  arrange(home) -> d_now
+nrow(d_now)
+```
+
+```{r}
+latest <- str_c("latest ", Sys.time())
+d_now
+shows$latest <- d_now
+View(shows$latest, latest)
+```
+
+any games going on?
+
+```{r}
+m_1 %>% filter(!(status %in% dones)) %>% 
+  filter(score != qq)
+```
+
+any games going or finished?
+
+```{r}
+m_1 %>% filter(score != qq) %>% 
+  arrange(home) -> xxx
+if (nrow(d_now)==0) {
+  xxx %>% View("past")
+}
+xxx
+```
+

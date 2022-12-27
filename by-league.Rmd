@@ -1,0 +1,115 @@
+flashscore by league
+
+get the leagues I want
+
+```{r}
+library(tidyverse)
+library(RSelenium)
+```
+
+
+```{r}
+remDr <- remoteDriver(port = 4445L)
+remDr$open(silent = TRUE)
+```
+
+look at soccer main page
+
+```{r navigate}
+my_url <- "https://www.flashscore.com/"
+remDr$navigate(my_url)
+title <- remDr$getTitle()
+title
+if (length(title) == 0) stop("no title") 
+```
+
+first skip the ad
+
+```{r skip-ad}
+Sys.sleep(1)
+tryCatch(
+  expr = {
+    webElem <- remDr$findElement(using = "css", value = "#onetrust-accept-btn-handler")
+    webElem$clickElement()
+    print(remDr$getCurrentUrl())
+    message("done successfully")
+  },
+  error = function(e) {
+    message("Caught an error")
+    print(e)
+  },
+  finally = {
+    message("All done")
+  }
+)
+```
+
+
+
+```{r}
+my_url <- "https://www.flashscore.com/football/albania/superliga/"
+remDr$navigate(my_url)
+```
+
+```{r page-source}
+my_html <- remDr$getPageSource()[[1]][1]
+my_html %>% read_html() -> h
+h
+```
+
+```{r}
+h %>% html_node("#live-table > section:nth-child(2) > div.leagues--static.event--leagues.summary-results") -> lives
+lives
+```
+
+need to look for "today's matches"
+
+or get all the *leagues* in live, and make urls of them
+
+- lowercase all
+- replace spaces by dashes
+- what about "name" with dashes in?
+- maybe space-dash-space gets replaced by dash, but if championship group etc then not, it's the bit before the dash
+
+```{r}
+h %>% html_nodes("span") -> spans
+spans %>% html_attr("class") -> classes
+spans %>% html_attr("title") -> titles
+spans %>% html_text() -> texts
+
+tibble(class = classes, title = titles, text = texts) %>% 
+  filter(str_detect(class, "event__title")) %>% 
+  select(class, text) %>% 
+  pivot_wider(names_from = "class", values_from = "text") %>% 
+  rename(type = 1, name = 2) %>% 
+  unnest_legacy(type, name)
+```
+
+or select from countries on left
+
+find div ids in it
+
+```{r}
+lives %>% html_nodes("div") -> divs
+divs %>% html_attr("id") -> ids
+divs %>% html_attr("title") -> titles
+tibble(id = ids, title = titles) %>% 
+  drop_na(title, id)
+```
+
+get score and status also
+
+
+livescore is also an option. No clicking on leagues to open them, matches have ids, but game info may be harder to extract
+
+
+
+
+
+
+end
+
+```{r}
+remDr$close()
+```
+
